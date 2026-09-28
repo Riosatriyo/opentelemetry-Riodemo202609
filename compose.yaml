@@ -861,6 +861,13 @@ services:
       - "${OTEL_COLLECTOR_PORT_GRPC}"
       - "${OTEL_COLLECTOR_PORT_HTTP}"
     logging: *logging
+    # Dynatrace + Bluebox secrets/endpoints (git-ignored, optional).
+    # If the file is absent, the collector still starts; the external exporters
+    # simply have empty endpoints. Remove the "required: false" line on older
+    # Docker Compose versions that don't support it.
+    env_file:
+      - path: .env.dynatrace
+        required: false
     environment:
       - AD_PROMETHEUS_PORT
       - FRONTEND_PROXY_ADDR
@@ -874,3 +881,7 @@ services:
       - POSTGRES_PORT
       - POSTGRES_MONITORING_PASSWORD
       - GOMEMLIMIT=160MiB
+      # NOTE: Bluebox exporter vars (DT_OTLP_ENDPOINT, DT_AUTH_HEADER) are injected
+      # via the env_file above. They are intentionally NOT listed here: a bare name
+      # under `environment:` triggers a host/.env lookup that would override the
+      # env_file value with null.

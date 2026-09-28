@@ -2,32 +2,43 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Extras/customization layer for the OTel Collector.
-# Override this file in your fork to add exporters for your own observability backend.
+# Loaded LAST (compose.yaml: --config=/etc/otelcol-config-extras.yml).
 #
-# This file is intentionally empty. It is always loaded last, giving forks
-# a stable, well-defined seam to customize without touching upstream files.
+# Integration: fan the demo's telemetry out to Bluebox (by Dynatrace) alongside
+# the demo's built-in debug/span_metrics exporters. Bluebox reads from the
+# Dynatrace environment behind the OTLP endpoint returned by `bluebox otlp-endpoint`.
 #
-# IMPORTANT: The OTel Collector merges config files but REPLACES arrays, not appends.
-# If you want to keep the default observability stack alongside your own exporters,
-# you must explicitly repeat the upstream exporter names in your pipeline definitions.
+# Secrets/endpoints come from the git-ignored .env.dynatrace file, injected into
+# the collector container via compose.yaml (env_file + environment). Nothing
+# secret lives in this file.
 #
-# Upstream exporter names (repeat these to keep them active):
-#   traces:  otlp_grpc/jaeger, debug, span_metrics
-#   metrics: otlp_http/prometheus, debug
-#   logs:    opensearch, debug
-#
-# Example:
-#
-# exporters:
-#   otlp_grpc/mybackend:
-#     endpoint: https://ingest.mybackend.com
-#
-# service:
-#   pipelines:
-#     traces:
-#       exporters: [otlp_grpc/jaeger, debug, span_metrics, otlp_grpc/mybackend]  # repeat upstream exporters
-#     metrics:
-#       receivers: [docker_stats, http_check/frontend-proxy, host_metrics, nginx, otlp, redis, span_metrics]
-#       exporters: [otlp_http/prometheus, debug, otlp_grpc/mybackend]           # repeat upstream exporters
-#     logs:
-#       exporters: [opensearch, debug, otlp_grpc/mybackend]                     # repeat upstream exporters
+# IMPORTANT: The OTel Collector MERGES config files but REPLACES arrays. The
+# pipeline `exporters:` lists below repeat the upstream exporters (debug,
+# span_metrics) so they keep working, and add otlphttp/bluebox.
+
+exporters:
+  # Bluebox / Dynatrace OTLP-HTTP ingest.
+  # - OTLP/HTTP exporter defaults to protobuf (http/protobuf) — required by Dynatrace.
+  # - Dynatrace requires DELTA temporality for counter/histogram metrics.
+  # - DT_AUTH_HEADER carries the whole Authorization value incl. scheme ("Bearer ...").
+  otlphttp/bluebox:
+    endpoint: ${env:DT_OTLP_ENDPOINT}
+    headers:
+      Authorization: "${env:DT_AUTH_HEADER}"
+
+processors:
+  # Dynatrace ingests delta metrics; convert cumulative -> delta before export.
+  cumulativetodelta/bluebox: {}
+
+service:
+  pipelines:
+    traces:
+      # repeat upstream (debug, span_metrics) + Bluebox
+      exporters: [debug, span_metrics, otlphttp/bluebox]
+    metrics:
+      # add delta conversion for Dynatrace; repeat upstream (debug) + Bluebox
+      processors: [resource_detection, memory_limiter, cumulativetodelta/bluebox]
+      exporters: [debug, otlphttp/bluebox]
+    logs:
+      # repeat upstream (debug) + Bluebox
+      exporters: [debug, otlphttp/bluebox]
